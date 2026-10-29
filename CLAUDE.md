@@ -2,155 +2,150 @@
 
 ## Purpose
 
-This is the grow-ui project — a lightweight web-based control panel for the hydroponic dosing system. It runs on the Raspberry Pi as a Flask app and serves as the primary operator interface for day-to-day grow operations.
+grow-ui is a lightweight Flask control panel for a hydroponic dosing system. It runs on
+the Raspberry Pi and is the day-to-day operator interface: mix nutrients, run pumps by
+hand, read sensors, review history. It is a dedicated panel for one grow, not a general
+automation platform.
 
-At a high level, this repo is responsible for:
+It does four things:
 
-- presenting a single-page UI for nutrient dosing, manual pump control, and sensor monitoring
-- computing nutrient doses from gallons added, growth stage, and strength factor
-- publishing batch dosing commands to the ESP32 pump controller via MQTT
-- sending sensor read/calibration commands to the ESP32 sensor controller via MQTT
-- streaming live ESP32 events to the browser via SSE
-- logging dosing history to a shared SQLite database
+- computes nutrient doses from gallons, growth stage and strength, and publishes them as
+  one `pump_batch` to the pump ESP32 over MQTT
+- sends manual pump commands and sensor read/calibration commands
+- streams every ESP32 message to the browser over SSE
+- logs doses to a shared SQLite database and shows that history
 
-This repo is intentionally simple and focused. It is not a general-purpose automation platform — it is a dedicated control panel for one grow system.
+## Where it sits
 
-## How This Repo Relates to the Other Repos
+- **grow-ui (this repo):** operator UI, nutrient math, command dispatch
+- **ESP32 pump controller:** executes batches, reports events. Owns I2C addresses, PROFET
+  channels and motor scheduling.
+- **ESP32 sensor controller:** reads pH, EC, water temp, air temp/humidity
+- **Mycodo (on the same Pi):** collects sensor readings for its dashboard and writes them
+  to the shared database. Event-driven dosing from Mycodo is planned.
 
-This repo sits between the operator and the hardware:
+grow-ui never knows an I2C address or GPIO pin; it speaks only in `pump_id` and
+`sensor_id` names. Mycodo can also publish to `esp32/pump/cmd`. The two do not
+coordinate, so never run a batch from both at once.
 
-- **grow-ui (this repo):** UI, nutrient math, command dispatch, history logging
-- **Mycodo repo:** alternative orchestration layer, custom outputs/functions, Mycodo UI integration
-- **ESP32 pump controller:** executes pump batches, reports events
-- **ESP32 sensor controller:** reads Atlas EZO-pH, EZO-EC, DS18B20, DHT22; reports sensor data
+## Stack
 
-grow-ui and the Mycodo repo can both publish to `esp32/pump/cmd` — they are not mutually exclusive, but they should not both be running active batches at the same time.
+Python 3.10+, Flask 3, `paho-mqtt` 2.x (callback API `VERSION2`), `python-dotenv`, a
+vanilla-JS single page (no framework), SQLite.
 
-## Tech Stack
+## Files
 
-- Python 3.10+ / Flask 3.0+
-- paho-mqtt 1.6+ (paho v2 callback API — use `CallbackAPIVersion.VERSION2`)
-- python-dotenv
-- Vanilla JS single-page app (no frontend framework)
-- SQLite (shared with Mycodo side via `grow_history.db`)
-
-## Project Architecture
-
-### Files
-
-- `app.py` — Flask app, all routes, MQTT client, SSE broadcast, dosing logic, auth
-- `config.py` — loads `.env`, defines topics, recipes, systems, delays, defaults
-- `history.py` — SQLite read/write for dosing events and sensor readings
-- `templates/index.html` — full SPA UI (tabs: Dose, Manual Pumps, Sensors, History)
+- `app.py` — routes, MQTT client, SSE broadcast, dosing logic, auth
+- `config.py` — loads `.env`; topics, recipes, systems, delays, defaults
+- `history.py` — SQLite writes for `dosing_events`, reads for the History tab
+- `templates/index.html` — the whole UI (Dose, Manual Pumps, Sensors, History tabs)
 - `templates/login.html` — login form
-- `.env` — runtime secrets and config overrides (gitignored)
+- `.env` — secrets and overrides (gitignored)
 
-### MQTT Topics
+### Routes (all except `/login` require login)
 
-| Topic | Direction | Purpose |
-|---|---|---|
-| `esp32/pump/cmd` | publish | Batch and direct pump commands |
-| `esp32/pump/resp` | subscribe | Batch events, item events, pump responses |
-| `esp32/pump/status` | subscribe | Pump controller heartbeat |
-| `esp32/sensors/cmd` | publish | Sensor read and raw calibration commands |
-| `esp32/sensors/resp` | subscribe | Per-sensor command responses |
-| `esp32/sensors/status` | subscribe | Periodic sensor telemetry |
+| Route | Purpose |
+|---|---|
+| `POST /preview` | Compute doses and delays for display |
+| `POST /dose` | Build and publish the `pump_batch`, log doses |
+| `POST /abort` | Publish `{"v":1,"type":"batch_abort"}` |
+| `POST /command` | Manual pump command (single or multi-pump) |
+| `POST /sensor_read` | `read` / `read_all` to the sensor ESP32 |
+| `POST /sensor_cmd` | Raw Atlas command for `ph` or `ec` (calibration) |
+| `GET /history` | Last 50 dosing events and sensor readings |
+| `GET /stream` | SSE stream of all MQTT traffic |
 
-All subscribed MQTT messages are forwarded to the browser via SSE unchanged (with `_topic` and `_ts` fields appended).
+## MQTT
 
-### SSE Event Stream (`/stream`)
+JSON only, every message has `"v": 1`, commands carry a `request_id` the firmware echoes.
 
-Each browser connection gets its own queue. `broadcast()` pushes to all live queues. A 100-event in-memory buffer (`_event_buffer`) is replayed to new connections on connect so the browser catches up after a refresh or reconnect. The keepalive comment is sent every 25s to keep proxies from closing the connection.
+| Topic | Direction |
+|---|---|
+| `esp32/pump/cmd` | publish |
+| `esp32/pump/resp`, `esp32/pump/status` | subscribe |
+| `esp32/sensors/cmd` | publish |
+| `esp32/sensors/resp`, `esp32/sensors/status` | subscribe |
 
-### Dosing Flow
+Every received message is forwarded to the browser unchanged, plus `_topic` and `_ts`.
 
-1. User fills in gallons, stage, strength, optional per-dose delay overrides
-2. Preview (`POST /preview`) — computes doses, returns amounts and delays for display
-3. Dose (`POST /dose`) — validates, builds `pump_batch` JSON, publishes to MQTT, logs to SQLite
-4. ESP32 executes batch sequentially, publishes `batch_item_event` and `batch_event` to `esp32/pump/resp`
-5. Events arrive at grow-ui via MQTT subscription and are broadcast to the browser via SSE
-6. Abort (`POST /abort`) — publishes `{"v":1,"type":"batch_abort"}` to stop the active batch
+Pump names: `calmag`, `micro`, `gro`, `bloom`, `phup`, `phdown`. Sensor names: `ph`, `ec`,
+`water_temp`, `air`. These come from the firmware; keep `SYSTEMS` in `config.py` aligned.
 
-### Nutrient Math
+## Dosing
 
-- Cal-Mag: `gallons × CALMAG_ML_PER_GAL` (flat rate, not affected by strength)
-- Micro/Gro/Bloom: `gallons × recipe[stage][nutrient] × strength`
-- Stage recipes defined in `config.py` as `ml/gal` at full strength
+1. The form sends gallons, stage, strength and optional per-nutrient delays.
+2. `/preview` returns the doses; `/dose` validates, builds the batch, publishes, logs.
+3. The ESP32 runs the batch step by step, emitting `batch_item_event` and `batch_event`
+   on `esp32/pump/resp`, which reach the browser over SSE.
 
-### Authentication
+Math: Cal-Mag is `gallons × CALMAG_ML_PER_GAL` (flat, **not** scaled by strength). Micro,
+Gro and Bloom are `gallons × STAGE_RECIPES[stage][nutrient] × strength`. Recipes are GH
+Flora ml/gal at full strength; the default strength is 0.33.
 
-- Username/password from `.env` (UI_USER, UI_PASS)
-- Login issues a random hex token stored in `_authed_tokens` (in-memory set)
-- Token stored as HTTP-only cookie (`grow_session`), 30-day max-age
-- Tokens are cleared on app restart — users must re-login after service restart
-- All routes except `/login` are protected by `login_required`
+## Authentication
 
-### History Logging
+`UI_USER` / `UI_PASS` from `.env`. Login issues a random token kept in an in-memory set
+and sent as an HTTP-only cookie (`grow_session`, 30 days). Restarting the app logs
+everyone out. The cookie is not marked `secure` because the panel is served over plain
+HTTP on the LAN and Tailscale.
 
-- SQLite at `/opt/Mycodo/mycodo/databases/grow_history.db` (shared with Mycodo)
-- `dosing_events` table: trigger, pump_id, volume_ml, grow_stage, strength_factor, batch_id
-- `sensor_readings` table: ph, ec, water_temp_f, air_temp_f, air_humidity
-- Tables auto-created on first write
-- `log_dosing_event()` never raises — failures are silent
+## History database
 
-## Configuration via `.env`
+`/opt/Mycodo/mycodo/databases/grow_history.db`, shared with Mycodo.
 
-All tunables go in `.env`. Key values:
+- `dosing_events` — written by grow-ui (and, later, Mycodo)
+- `sensor_readings` — written **only by Mycodo**; grow-ui just displays it
+
+Both codebases define the schema independently, so a new column must be added in both,
+plus a manual `ALTER TABLE` on the Pi (existing databases are not migrated). Logging
+never raises: a failed write is silent.
+
+## Configuration (`.env`)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MQTT_HOST` | — | Broker IP |
-| `MQTT_PORT` | `1883` | Broker port |
+| `MQTT_HOST` / `MQTT_PORT` | `10.0.0.232` / `1883` | Broker |
 | `MQTT_USER` / `MQTT_PASS` | — | Broker credentials |
-| `UI_USER` / `UI_PASS` | — | Web UI login |
-| `SECRET_KEY` | — | Flask secret |
-| `CALMAG_ML_PER_GAL` | `3.8` | Cal-Mag dose rate |
-| `DELAY_CALMAG_SEC` | `600` | Post-Cal-Mag mixing delay |
-| `DELAY_MICRO_SEC` | `150` | Post-Micro mixing delay |
-| `DELAY_GRO_SEC` | `90` | Post-Gro mixing delay |
-| `DELAY_BLOOM_SEC` | `90` | Post-Bloom mixing delay |
+| `UI_USER` / `UI_PASS` | `admin` / — | Web UI login |
+| `CALMAG_ML_PER_GAL` | `3.8` | Cal-Mag rate |
+| `DEFAULT_STRENGTH` | `0.33` | Default strength factor |
+| `DELAY_CALMAG_SEC` | `600` | Mixing delay after Cal-Mag |
+| `DELAY_MICRO_SEC` | `150` | After Micro |
+| `DELAY_GRO_SEC` | `90` | After Gro |
+| `DELAY_BLOOM_SEC` | `90` | After Bloom |
+
+Topic names can also be overridden (`MQTT_CMD_TOPIC`, `SENSOR_STATUS_TOPIC`, ...), but the
+defaults match the firmware.
 
 ## Deployment
 
-Runs as a systemd service on the Pi:
-
-- Service name: `grow-ui`
-- Working directory: `/home/pi/code/grow-ui`
-- Virtualenv: `/home/pi/code/grow-ui/.venv`
-- Port: `5001`
-- Access locally at `http://10.0.0.232:5001` or via Tailscale
-
-Typical deploy after changes:
+Systemd service `grow-ui` on the Pi, working directory `/home/pi/code/grow-ui`, venv
+`.venv`, port 5001.
 
 ```bash
 cd /home/pi/code/grow-ui && git pull && sudo systemctl restart grow-ui
 ```
 
-## Gotchas and Conventions
+## Gotchas
 
-### 1. Per-dose delay overrides
-The dose form accepts optional delay overrides per nutrient. If not provided, the server falls back to `config.py` defaults (which come from `.env`). Backend uses submitted delays in the batch payload — do not hardcode delays in `build_batch()`.
-
-### 2. Cal-Mag is not strength-adjusted
-This is intentional. Cal-Mag is a flat supplement dosed by volume of water added, not by nutrient strength. Do not apply `strength` to the Cal-Mag calculation.
-
-### 3. Dosing order is fixed: Cal-Mag → Micro → Gro → Bloom
-This follows GH Flora mixing instructions — Micro goes into fresh water first. Do not change the order without understanding the chemistry.
-
-### 4. SSE buffer replays on reconnect
-The last 100 events are buffered and replayed to new SSE connections. This means a browser refresh during a 20-minute batch delay will still show the CalMag completed event. Events are not persisted across app restarts.
-
-### 5. paho-mqtt v2 API
-The MQTT client uses `CallbackAPIVersion.VERSION2`. Callback signatures are different from paho v1. Do not mix v1-style callbacks (`on_connect(client, userdata, flags, rc)`) — they will silently fail.
-
-### 6. Manual commands use `queue_if_busy`
-Single-pump manual commands include `"options": {"queue_if_busy": true}` so they don't get rejected if a batch is running. Multi-pump motor commands are sent as a `pump_batch` with `stop_on_error: false`.
-
-### 7. pH Up/Down safety threshold
-The UI shows a confirmation dialog if dosing more than 20ml of pH Up or pH Down. This threshold is hardcoded in the `sendCommand()` JS function in `index.html`.
-
-### 8. Shared SQLite database
-`grow_history.db` is shared with the Mycodo repo. Both sides write to it. Schema is compatible — tables are created if not present. Do not change column names without updating both repos.
-
-### 9. Multi-system support
-`config.py` has a `SYSTEMS` list. The UI shows a system selector only if there is more than one system. Each system maps nutrient role names to ESP32 `pump_id` strings. Keep `pump_id` values aligned with the ESP32 firmware.
+1. **Dose order is fixed: Cal-Mag, Micro, Gro, Bloom.** GH labels require FloraMicro to
+   go into fresh water first, and concentrates must never be mixed together.
+2. **Delays come from the request.** `build_batch()` uses the submitted delays and falls
+   back to the `.env` defaults; do not hardcode them. Timing belongs to the ESP32 — a batch
+   can span 20+ minutes and must survive an app restart, so never sequence steps from here.
+3. **Logged doses are the requested amounts.** `/dose` writes its rows when the batch is
+   published, before anything runs. An aborted or failed batch still appears as dosed.
+   Completion on the firmware is estimated from `ml / mlPerSec`, never measured.
+4. **One motor runs at a time** (the 12 V supply cannot run two). Do not design anything
+   that assumes parallel dosing.
+5. **Manual commands** use `queue_if_busy` for single pumps so they are not rejected during
+   a batch. Multi-pump motor commands go out as a `pump_batch` with `stop_on_error: false`.
+6. **pH Up / pH Down** doses over 20 ml prompt for confirmation. The threshold is hardcoded
+   in `sendCommand()` in `index.html`. pH is manual here; it is a feedback loop, not part
+   of the nutrient batch.
+7. **SSE buffer:** the last 100 events are replayed to new connections so a refresh
+   mid-batch keeps context. The buffer is in memory only and is lost on restart.
+8. **paho-mqtt 2.x:** callbacks use the v2 signatures. v1-style callbacks fail silently.
+9. **Multiple systems:** `SYSTEMS` in `config.py` maps nutrient roles to pump IDs. The
+   selector appears only when more than one system is defined.
+10. **Secrets stay out of git.** `.env` holds broker and UI credentials.

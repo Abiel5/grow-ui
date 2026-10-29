@@ -5,7 +5,6 @@ load_dotenv()
 
 UI_USER      = os.environ.get("UI_USER", "admin")
 UI_PASS      = os.environ.get("UI_PASS", "")
-SECRET_KEY   = os.environ.get("SECRET_KEY", "change-me")
 
 MQTT_HOST         = os.environ.get("MQTT_HOST", "10.0.0.232")
 MQTT_PORT         = int(os.environ.get("MQTT_PORT", "1883"))

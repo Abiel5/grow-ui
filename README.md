@@ -43,7 +43,6 @@ MQTT_PASS=your-mqtt-password
 
 UI_USER=admin
 UI_PASS=your-ui-password
-SECRET_KEY=a-long-random-string
 ```
 
 `.env` is gitignored and holds every secret the app needs. Dosing tunables
@@ -117,5 +116,3 @@ Part of a four-repo hydroponics system:
 
 Mycodo can publish to the same pump topic as this app. They do not coordinate, so do not
 run a batch from both at once.
-
-See `CLAUDE.md` for architecture notes and conventions.
