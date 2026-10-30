@@ -109,10 +109,14 @@ def _on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
 
 
 def _on_message(client, userdata, msg):
+    # Decode defensively: one malformed message must not raise inside the MQTT callback.
+    text = msg.payload.decode("utf-8", errors="replace")
     try:
-        payload = json.loads(msg.payload.decode())
+        payload = json.loads(text)
     except Exception:
-        payload = {"raw": msg.payload.decode()}
+        payload = {"raw": text}
+    if not isinstance(payload, dict):
+        payload = {"raw": text}
     payload["_topic"] = msg.topic
     payload["_ts"] = _ts()
     broadcast(payload)
