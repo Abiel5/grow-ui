@@ -83,7 +83,7 @@ browser ──HTTP──► Flask (app.py) ──MQTT──► ESP32 pump contro
 
 Dosing computes Cal-Mag as a flat rate per gallon (not scaled by strength) and Micro, Gro
 and Bloom from the stage recipe times strength. The four doses go out as a single
-`pump_batch` in the order Cal-Mag, Micro, Gro, Bloom, with a mixing delay after each step.
+`batch` in the order Cal-Mag, Micro, Gro, Bloom, with a mixing delay after each step.
 That order follows the GH Flora label instructions and should not be changed casually.
 
 Sequencing and timing belong to the ESP32, not to this app — a batch can span 20+ minutes

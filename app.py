@@ -144,8 +144,8 @@ def build_batch(doses: dict, system_id: str, delays: dict) -> dict:
     pumps = system["pumps"]
     return {
         "v": 1,
-        "type": "pump_batch",
-        "batch_id": "nutrient-{}".format(uuid4().hex[:8]),
+        "type": "batch",
+        "request_id": "nutrient-{}".format(uuid4().hex[:8]),
         "options": {"stop_on_error": True},
         "commands": [
             {
@@ -286,7 +286,7 @@ def dose():
     doses = compute_doses(gallons, stage, strength)
     payload = build_batch(doses, system_id, delays)
     _mqtt.publish(MQTT_CMD_TOPIC, json.dumps(payload))
-    broadcast({"type": "ui_event", "state": "batch_sent", "batch_id": payload["batch_id"], "ts": _ts()})
+    broadcast({"type": "ui_event", "state": "batch_sent", "request_id": payload["request_id"], "ts": _ts()})
     system = next(s for s in SYSTEMS if s["id"] == system_id)
     pumps = system["pumps"]
     for key, pump_id in pumps.items():
@@ -294,9 +294,9 @@ def dose():
             log_dosing_event(
                 trigger='grow_ui', pump_id=pump_id, volume_ml=doses[key],
                 grow_stage=stage, strength_factor=strength,
-                batch_id=payload["batch_id"],
+                batch_id=payload["request_id"],
             )
-    return jsonify({"ok": True, "batch_id": payload["batch_id"], "doses": doses, "delays": delays})
+    return jsonify({"ok": True, "request_id": payload["request_id"], "doses": doses, "delays": delays})
 
 
 @app.route("/history")
@@ -384,8 +384,8 @@ def command():
         batch_id = "manual-{}".format(uuid4().hex[:8])
         payload = {
             "v": 1,
-            "type": "pump_batch",
-            "batch_id": batch_id,
+            "type": "batch",
+            "request_id": batch_id,
             "options": {"stop_on_error": False},
             "commands": [
                 {"item_id": "step-{}".format(i + 1), "pump_id": pid, "cmd": cmd}
@@ -393,7 +393,7 @@ def command():
             ],
         }
         _mqtt.publish(MQTT_CMD_TOPIC, json.dumps(payload))
-        broadcast({"type": "ui_event", "state": "batch_sent", "batch_id": payload["batch_id"], "ts": _ts()})
+        broadcast({"type": "ui_event", "state": "batch_sent", "request_id": payload["request_id"], "ts": _ts()})
         ml = parse_dose_ml(cmd)
         if ml is not None:
             for pid in pump_ids:
@@ -403,6 +403,7 @@ def command():
         for pid in pump_ids:
             payload = {
                 "v": 1,
+                "type": "raw",
                 "pump_id": pid,
                 "cmd": cmd,
                 "request_id": "manual-{}".format(uuid4().hex[:6]),

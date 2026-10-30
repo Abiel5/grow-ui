@@ -590,7 +590,7 @@
     const resp = await fetch('/dose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await resp.json();
     if (data.error) { alert(data.error); btn.disabled = false; return; }
-    activeBatchId = data.batch_id;
+    activeBatchId = data.request_id;
     document.getElementById('abort-btn').classList.add('visible');
     renderPreview({ doses: data.doses, total_ml: Object.values(data.doses).reduce((a, b) => a + b, 0), delays: data.delays });
   }
@@ -761,7 +761,7 @@
         mqtt_connected:    'MQTT connected',
         mqtt_disconnected: 'MQTT disconnected',
         mqtt_error:        `MQTT error rc=${msg.rc}`,
-        batch_sent:        `Batch sent → ${msg.batch_id}`,
+        batch_sent:        `Batch sent → ${msg.request_id}`,
         stream_connected:  'Log stream connected',
         sensor_read_sent:  `Sensor read sent → ${(msg.sensors || []).join(', ')}`,
       };
@@ -769,16 +769,20 @@
     }
     if (type === 'batch_event') {
       const cls = msg.state === 'completed' ? 'completed' : msg.state === 'aborted' ? 'aborted' : msg.state === 'accepted' ? 'accepted' : '';
-      return { text: `${ts}Batch [${msg.batch_id}] → <b>${msg.state}</b>${msg.reason ? ' (' + msg.reason + ')' : ''}`, cls };
+      return { text: `${ts}Batch [${msg.request_id}] → <b>${msg.state}</b>${msg.reason ? ' (' + msg.reason + ')' : ''}`, cls };
     }
     if (type === 'batch_item_event') {
       const ml = msg.requested_ml != null ? ` ${msg.requested_ml.toFixed(2)} ml` : '';
       const extra = msg.state === 'post_delay' && msg.post_delay_ms ? ` (delay ${(msg.post_delay_ms/1000).toFixed(0)}s)` : '';
       return { text: `${ts}&nbsp;&nbsp;[${msg.item_id || msg.index}] ${NUTRIENT_LABELS[msg.pump_id] || msg.pump_id} ${msg.cmd}${ml} → <b>${msg.state}</b>${extra}`, cls: msg.state };
     }
-    if (type === 'pump_event')        return { text: `${ts}Pump [${msg.pump_id}] → ${msg.state}`, cls: msg.state };
+    if (type === 'pump_event')        return { text: `${ts}Pump [${msg.pump_id}] → ${msg.state}${msg.reason ? ' (' + msg.reason + ')' : ''}`, cls: msg.state };
     if (type === 'controller_status') return { text: `${ts}ESP32 ${msg.state}${msg.uptime_sec != null ? ' (up ' + msg.uptime_sec + 's)' : ''}`, cls: 'status' };
-    if (type === 'batch_response')    return { text: `${ts}Batch response: ${msg.ok ? 'accepted' : 'rejected: ' + msg.reason}`, cls: msg.ok ? 'accepted' : 'failed' };
+    if (type === 'pump_response') {
+      const who = msg.pump_id ? `Pump [${msg.pump_id}] ` : '';
+      if (msg.ok) return { text: `${ts}${who}accepted${msg.result && msg.result.raw ? ': ' + msg.result.raw : ''}`, cls: 'accepted' };
+      return { text: `${ts}${who}rejected: ${msg.error}${msg.message ? ' (' + msg.message + ')' : ''}`, cls: 'failed' };
+    }
     return { text: `${ts}${JSON.stringify(msg)}`, cls: '' };
   }
 
@@ -836,7 +840,7 @@
 
     // Dose/abort button state
     if (msg.type === 'batch_event' && (msg.state === 'completed' || msg.state === 'aborted')) {
-      if (msg.batch_id === activeBatchId) {
+      if (msg.request_id === activeBatchId) {
         activeBatchId = null;
         document.getElementById('dose-btn').disabled = false;
         document.getElementById('abort-btn').classList.remove('visible');

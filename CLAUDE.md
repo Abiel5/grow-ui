@@ -10,7 +10,7 @@ automation platform.
 It does four things:
 
 - computes nutrient doses from gallons, growth stage and strength, and publishes them as
-  one `pump_batch` to the pump ESP32 over MQTT
+  one `batch` to the pump ESP32 over MQTT
 - sends manual pump commands and sensor read/calibration commands
 - streams every ESP32 message to the browser over SSE
 - logs doses to a shared SQLite database and shows that history
@@ -47,7 +47,7 @@ vanilla-JS single page (no framework), SQLite.
 | Route | Purpose |
 |---|---|
 | `POST /preview` | Compute doses and delays for display |
-| `POST /dose` | Build and publish the `pump_batch`, log doses |
+| `POST /dose` | Build and publish the `batch`, log doses |
 | `POST /abort` | Publish `{"v":1,"type":"batch_abort"}` |
 | `POST /command` | Manual pump command (single or multi-pump) |
 | `POST /sensor_read` | `read` / `read_all` to the sensor ESP32 |
@@ -139,7 +139,7 @@ cd /home/pi/code/grow-ui && git pull && sudo systemctl restart grow-ui
 4. **One motor runs at a time** (the 12 V supply cannot run two). Do not design anything
    that assumes parallel dosing.
 5. **Manual commands** use `queue_if_busy` for single pumps so they are not rejected during
-   a batch. Multi-pump motor commands go out as a `pump_batch` with `stop_on_error: false`.
+   a batch. Multi-pump motor commands go out as a `batch` with `stop_on_error: false`.
 6. **pH Up / pH Down** doses over 20 ml prompt for confirmation. The threshold is hardcoded
    in `sendCommand()` in `index.html`. pH is manual here; it is a feedback loop, not part
    of the nutrient batch.
