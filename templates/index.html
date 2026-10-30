@@ -651,8 +651,7 @@
   }
 
   function updateReadings(msg) {
-    if (msg.type === 'controller_status') return;
-    if (msg.ph === undefined && msg.ec === undefined) return;
+    if (msg.type !== 'sensor_reading') return;
     setReading('r-ph',         msg.ph,         2, '');
     setReading('r-ec',         msg.ec,         0, ' µS/cm');
     setReading('r-water-temp', msg.water_temp,  1, '°F');
@@ -789,7 +788,7 @@
       return { text: `${ts}Sensor ESP32 ${msg.state}${msg.uptime_sec != null ? ' (up ' + msg.uptime_sec + 's)' : ''}`, cls: 'status' };
     }
     // Full sensor reading from status topic
-    if (msg.ph !== undefined || msg.ec !== undefined) {
+    if (msg.type === 'sensor_reading') {
       const f = (v, d, u) => (v != null && v >= 0) ? v.toFixed(d) + u : '—';
       const parts = [
         `pH ${f(msg.ph, 2, '')}`,
@@ -802,24 +801,22 @@
       const rid = msg.request_id ? ` [${msg.request_id}]` : '';
       return { text: `${ts}${parts.join('  ')}${rid}`, cls: anyError ? 'failed' : 'completed' };
     }
-    // Raw command response
-    if (msg.raw_cmd !== undefined) {
-      if (msg.status === 'ok') {
-        return { text: `${ts}${msg.sensor_id} [${msg.raw_cmd}] → ${msg.raw_response || '(no data)'}`, cls: 'completed' };
+    if (msg.type === 'sensor_response') {
+      const who = msg.sensor_id || 'sensor';
+      if (!msg.ok) {
+        const what = msg.cmd !== undefined ? `${who} [${msg.cmd}]` : who;
+        return { text: `${ts}${what} → <b>error</b>: ${msg.error || 'unknown'}`, cls: 'failed' };
       }
-      return { text: `${ts}${msg.sensor_id} [${msg.raw_cmd}] → error: ${msg.error}`, cls: 'failed' };
-    }
-    // Per-sensor response or error event
-    if (msg.sensor_id) {
-      if (msg.status === 'ok') {
-        const val = msg.value !== undefined
-          ? msg.value
-          : (msg.air_temp !== undefined ? `${msg.air_temp.toFixed(1)}°F ${msg.air_hum.toFixed(0)}%` : '?');
-        return { text: `${ts}${msg.sensor_id} → <b>ok</b>: ${val}`, cls: 'completed' };
+      const res = msg.result || {};
+      // Raw command response
+      if (msg.cmd !== undefined) {
+        return { text: `${ts}${who} [${msg.cmd}] → ${res.raw_response || '(no data)'}`, cls: 'completed' };
       }
-      if (msg.status === 'error') {
-        return { text: `${ts}${msg.sensor_id} → <b>error</b>: ${msg.error || 'unknown'}`, cls: 'failed' };
-      }
+      // Per-sensor read
+      const val = res.value !== undefined
+        ? res.value
+        : (res.air_temp !== undefined ? `${res.air_temp.toFixed(1)}°F ${res.air_hum.toFixed(0)}%` : '?');
+      return { text: `${ts}${who} → <b>ok</b>: ${val}`, cls: 'completed' };
     }
     return { text: `${ts}${JSON.stringify(msg)}`, cls: '' };
   }

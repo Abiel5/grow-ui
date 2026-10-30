@@ -323,11 +323,11 @@ def sensor_read():
 
     if sensor_ids:
         for sid in sensor_ids:
-            payload = {"v": 1, "cmd": "read", "sensor_id": sid, "request_id": "ui-{}".format(uuid4().hex[:8])}
+            payload = {"v": 1, "type": "read", "sensor_id": sid, "request_id": "ui-{}".format(uuid4().hex[:8])}
             _mqtt.publish(SENSOR_CMD_TOPIC, json.dumps(payload))
         broadcast({"type": "ui_event", "state": "sensor_read_sent", "sensors": sensor_ids, "ts": _ts()})
     else:
-        payload = {"v": 1, "cmd": "read_all", "request_id": "ui-{}".format(uuid4().hex[:8])}
+        payload = {"v": 1, "type": "read_all", "request_id": "ui-{}".format(uuid4().hex[:8])}
         _mqtt.publish(SENSOR_CMD_TOPIC, json.dumps(payload))
         broadcast({"type": "ui_event", "state": "sensor_read_sent", "sensors": ["all"], "ts": _ts()})
 
@@ -339,19 +339,19 @@ def sensor_read():
 def sensor_cmd():
     data = request.json or {}
     sensor_id = data.get("sensor_id", "").strip()
-    raw_cmd   = data.get("cmd", "").strip()
+    cmd       = data.get("cmd", "").strip()
     wait_ms   = int(data.get("wait_ms", 900))
 
     if sensor_id not in {"ph", "ec"}:
         return jsonify({"error": "sensor_id must be ph or ec"}), 400
-    if not raw_cmd:
+    if not cmd:
         return jsonify({"error": "cmd is required"}), 400
 
     payload = {
         "v": 1,
-        "cmd": "raw",
+        "type": "raw",
         "sensor_id": sensor_id,
-        "raw_cmd": raw_cmd,
+        "cmd": cmd,
         "wait_ms": wait_ms,
         "request_id": "ui-{}".format(uuid4().hex[:8]),
     }
