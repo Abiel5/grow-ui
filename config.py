@@ -18,6 +18,13 @@ SENSOR_CMD_TOPIC    = os.environ.get("SENSOR_CMD_TOPIC",    "esp32/sensors/cmd")
 SENSOR_RESP_TOPIC   = os.environ.get("SENSOR_RESP_TOPIC",   "esp32/sensors/resp")
 SENSOR_STATUS_TOPIC = os.environ.get("SENSOR_STATUS_TOPIC", "esp32/sensors/status")
 
+# Devices tab: how long without a message before a controller is flagged.
+# Heartbeats arrive every 30 s and sensor readings every 60 s.
+DEVICE_HEARTBEAT_WARN_SEC = int(os.environ.get("DEVICE_HEARTBEAT_WARN_SEC", "45"))
+DEVICE_HEARTBEAT_DOWN_SEC = int(os.environ.get("DEVICE_HEARTBEAT_DOWN_SEC", "90"))
+DEVICE_READING_WARN_SEC   = int(os.environ.get("DEVICE_READING_WARN_SEC",   "90"))
+DEVICE_READING_DOWN_SEC   = int(os.environ.get("DEVICE_READING_DOWN_SEC",   "180"))
+
 # Dosing defaults — can move these to .env later if needed
 CALMAG_ML_PER_GAL  = float(os.environ.get("CALMAG_ML_PER_GAL", "3.8"))
 DEFAULT_STRENGTH   = float(os.environ.get("DEFAULT_STRENGTH", "0.33"))

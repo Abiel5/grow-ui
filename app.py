@@ -11,6 +11,7 @@ import secrets
 
 from flask import Flask, Response, jsonify, make_response, redirect, render_template, request, url_for
 
+import devices
 from history import log_dosing_event, parse_dose_ml, query_history
 
 from config import (
@@ -63,10 +64,11 @@ _mqtt_connected = False
 _event_buffer: deque = deque(maxlen=100)
 
 
-def broadcast(data: dict) -> None:
+def broadcast(data: dict, replay: bool = True) -> None:
     msg = "data: {}\n\n".format(json.dumps(data))
     with _sse_lock:
-        _event_buffer.append(msg)
+        if replay:
+            _event_buffer.append(msg)
         dead = []
         for q in _sse_clients:
             try:
@@ -119,7 +121,13 @@ def _on_message(client, userdata, msg):
         payload = {"raw": text}
     payload["_topic"] = msg.topic
     payload["_ts"] = _ts()
-    broadcast(payload)
+    try:
+        devices.record(msg.topic, payload, retained=bool(msg.retain))
+    except Exception:
+        pass  # device tracking must never block the live event stream
+    # Heartbeats are kept out of the replay buffer: two controllers send one every 30 s,
+    # which would push batch events out of the last 100 within half an hour.
+    broadcast(payload, replay=payload.get("type") != "controller_status")
 
 
 def start_mqtt() -> None:
@@ -307,6 +315,12 @@ def dose():
 @login_required
 def history():
     return jsonify(query_history())
+
+
+@app.route("/devices")
+@login_required
+def devices_status():
+    return jsonify(devices.snapshot(_mqtt_connected))
 
 
 @app.route("/abort", methods=["POST"])

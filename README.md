@@ -14,8 +14,11 @@ It talks to two ESP32 controllers over MQTT and streams their events live to the
 - **Sensors** — live pH, EC, water temperature, air temperature and humidity, with
   on-demand reads and raw Atlas calibration commands
 - **History** — dosing events and sensor readings from a shared SQLite database
+- **Devices** — a read-only live view of both ESP32 controllers: online state, uptime,
+  Wi-Fi signal, free memory, pump activity and per-sensor pass/fail
 - **Live events** — ESP32 events stream to the browser over SSE, with the last 100 events
-  replayed on reconnect so a refresh mid-batch does not lose context
+  replayed on reconnect so a refresh mid-batch does not lose context (heartbeats are not
+  replayed)
 
 ## Requirements
 
@@ -79,6 +82,7 @@ browser ──HTTP──► Flask (app.py) ──MQTT──► ESP32 pump contro
 - `app.py` — routes, MQTT client, SSE broadcast, dosing logic, auth
 - `config.py` — `.env` loading, topics, stage recipes, pump maps, delays
 - `history.py` — SQLite reads and writes
+- `devices.py` — in-memory health of the two controllers, behind the Devices tab
 - `templates/index.html` — the whole single-page UI
 
 Dosing computes Cal-Mag as a flat rate per gallon (not scaled by strength) and Micro, Gro

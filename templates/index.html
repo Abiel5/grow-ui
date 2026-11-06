@@ -261,8 +261,76 @@
     .hist-table tr:hover td { background: #1a2333; }
     .hist-null { color: #4b5563; }
 
+    /* ── Devices ── */
+    .devices-main {
+      max-width: 960px;
+      margin: 1.5rem auto;
+      padding: 0 1rem;
+    }
+    .devices-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.2rem;
+      align-items: start;
+    }
+    .devices-banner {
+      margin-bottom: 1.2rem;
+      padding: 0.6rem 0.9rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      background: #450a0a;
+      color: #f87171;
+    }
+    .dev-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.9rem; }
+    .dev-name { font-size: 1rem; font-weight: 600; color: #e5e7eb; }
+    .dev-id   { font-size: 0.75rem; color: #6b7280; margin-top: 0.15rem; }
+    .dev-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      white-space: nowrap;
+      background: #1f2937;
+      color: #9ca3af;
+      border: 1px solid #374151;
+    }
+    .dev-badge.ok      { background: #14532d; color: #4ade80; border-color: #14532d; }
+    .dev-badge.warn    { background: #422006; color: #fbbf24; border-color: #422006; }
+    .dev-badge.down    { background: #450a0a; color: #f87171; border-color: #450a0a; }
+    .dev-reasons { font-size: 0.8rem; color: #fbbf24; margin: -0.3rem 0 0.9rem; }
+    .dev-reasons.down { color: #f87171; }
+    .dev-reasons.unknown { color: #9ca3af; }
+    .dev-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.42rem 0;
+      border-bottom: 1px solid #111827;
+      font-size: 0.85rem;
+    }
+    .dev-row:last-child { border-bottom: none; }
+    .dev-row .k { color: #9ca3af; }
+    .dev-row .v { color: #e5e7eb; font-variant-numeric: tabular-nums; text-align: right; }
+    .dev-row .v.good { color: #4ade80; }
+    .dev-row .v.fair { color: #fbbf24; }
+    .dev-row .v.weak { color: #f87171; }
+    .dev-row .dim    { color: #4b5563; }
+    .dev-sensors { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+    .dev-sensor {
+      font-size: 0.75rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: #111827;
+      border: 1px solid #374151;
+      color: #9ca3af;
+    }
+    .dev-sensor.ok   { border-color: #14532d; color: #4ade80; }
+    .dev-sensor.fail { border-color: #7f1d1d; color: #f87171; }
+
     @media (max-width: 680px) {
       .pumps-main, .sensors-main { grid-template-columns: 1fr; }
+      .devices-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -282,6 +350,7 @@
   <button class="tab-btn active" onclick="switchTab('pumps', this)">Pumps</button>
   <button class="tab-btn" onclick="switchTab('sensors', this)">Sensors</button>
   <button class="tab-btn" onclick="switchTab('history', this)">History</button>
+  <button class="tab-btn" onclick="switchTab('devices', this)">Devices</button>
 </div>
 
 <!-- ── Pumps tab ─────────────────────────────────────────────────────────── -->
@@ -523,6 +592,16 @@
   </div>
 </div>
 
+<!-- ── Devices tab ───────────────────────────────────────────────────────── -->
+<div id="devices-tab" class="tab-panel">
+  <div class="devices-main">
+    <div id="devices-banner" class="devices-banner" style="display:none"></div>
+    <div id="devices-grid" class="devices-grid">
+      <div class="card"><div class="dev-row"><span class="k">Loading…</span></div></div>
+    </div>
+  </div>
+</div>
+
 <script>
   const DELAYS = {{ delays | tojson }};
   const NUTRIENT_LABELS = {calmag:'Cal-Mag', micro:'Micro', gro:'Gro', bloom:'Bloom'};
@@ -535,6 +614,8 @@
     btn.classList.add('active');
     document.getElementById(name + '-tab').classList.add('active');
     if (name === 'history') loadHistory();
+    devicesTabActive = (name === 'devices');
+    if (devicesTabActive) loadDevices();
   }
 
   // ── System selector ───────────────────────────────────────────────────────
@@ -824,6 +905,125 @@
     }
     return { text: `${ts}${JSON.stringify(msg)}`, cls: '' };
   }
+
+  // ── Devices ───────────────────────────────────────────────────────────────
+  // /devices is polled every 5 s while the tab is open. Ages in the snapshot are
+  // measured on the server, so between polls they are advanced by the time elapsed
+  // locally, which keeps them correct whatever the browser clock says.
+  let devicesTabActive = false;
+  let devSnap = null;
+  let devFetchedAt = 0;
+  let devFetchError = false;
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function fmtDur(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  async function loadDevices() {
+    try {
+      const resp = await fetch('/devices');
+      if (!resp.ok) throw new Error(resp.status);
+      devSnap = await resp.json();
+      devFetchedAt = Date.now();
+      devFetchError = false;
+    } catch (e) {
+      devFetchError = true;
+    }
+    renderDevices();
+  }
+
+  function devRow(label, value, cls) {
+    return `<div class="dev-row"><span class="k">${label}</span><span class="v ${cls || ''}">${value}</span></div>`;
+  }
+
+  function renderDevice(d, elapsed) {
+    const ago = s => s == null ? null : fmtDur(s + elapsed) + ' ago';
+    const dim = '<span class="dim">—</span>';
+    const labels = {ok: 'OK', warn: 'Warning', down: 'Down', unknown: 'Unknown'};
+    const reasons = (d.reasons || []).map(esc).join('<br>');
+
+    let rssi = dim, rssiCls = '';
+    if (d.wifi_rssi != null) {
+      rssiCls = d.wifi_rssi >= -60 ? 'good' : d.wifi_rssi >= -70 ? 'fair' : 'weak';
+      const word = {good: 'Good', fair: 'Fair', weak: 'Weak'}[rssiCls];
+      rssi = `${d.wifi_rssi} dBm (${word})`;
+    }
+    const heap = d.free_heap != null ? `${Math.round(d.free_heap / 1024)} KB free` : dim;
+    const uptime = d.uptime_sec != null && d.heartbeat_age_sec != null
+      ? fmtDur(d.uptime_sec + d.heartbeat_age_sec + elapsed) : dim;
+    const booted = d.booted_at != null ? new Date(d.booted_at * 1000).toLocaleString() : dim;
+
+    let rows = devRow('Last heartbeat', ago(d.heartbeat_age_sec) || dim);
+    rows += devRow('Uptime', uptime);
+    rows += devRow('Booted', booted);
+    rows += devRow('Wi-Fi signal', rssi, rssiCls);
+    rows += devRow('Memory', heap);
+    rows += devRow('IP address', d.ip ? esc(d.ip) : dim);
+
+    if (d.id === 'pump') {
+      let activity = dim;
+      if (d.active_batch) activity = 'Batch running';
+      else if (d.motor_busy) activity = 'Motor running';
+      else if (d.active_batch === false || d.motor_busy === false) activity = 'Idle';
+      rows += devRow('Activity', activity);
+      const b = d.last_batch;
+      const lastBatch = b
+        ? `${esc(b.state)}${b.reason ? ' (' + esc(b.reason) + ')' : ''}, ${ago(b.age_sec)}`
+        : dim;
+      rows += devRow('Last batch', lastBatch);
+    } else {
+      rows += devRow('Last reading', ago(d.reading_age_sec) || dim);
+      const dots = (d.sensors || []).map(s => {
+        const cls = s.ok === true ? 'ok' : s.ok === false ? 'fail' : '';
+        const word = s.ok === true ? 'ok' : s.ok === false ? 'fail' : '—';
+        return `<span class="dev-sensor ${cls}">${esc(s.id)}: ${word}</span>`;
+      }).join('');
+      rows += devRow('Sensors', `<div class="dev-sensors">${dots}</div>`);
+    }
+
+    return `<div class="card">
+      <div class="dev-head">
+        <div>
+          <div class="dev-name">${esc(d.name)}</div>
+          <div class="dev-id">${d.controller_id ? esc(d.controller_id) : 'not seen yet'}</div>
+        </div>
+        <span class="dev-badge ${esc(d.status)}">${labels[d.status] || esc(d.status)}</span>
+      </div>
+      ${reasons ? `<div class="dev-reasons ${esc(d.status)}">${reasons}</div>` : ''}
+      ${rows}
+    </div>`;
+  }
+
+  function renderDevices() {
+    const banner = document.getElementById('devices-banner');
+    const grid = document.getElementById('devices-grid');
+    if (devFetchError) {
+      banner.textContent = 'Cannot reach grow-ui. Showing the last data received.';
+      banner.style.display = 'block';
+    } else if (devSnap && !devSnap.mqtt_connected) {
+      banner.textContent = 'grow-ui is not connected to the broker, so device status is unknown.';
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+    if (!devSnap) return;
+    // After a failed poll the ages stop advancing, so the stale data is not mistaken for live.
+    const elapsed = devFetchError ? 0 : (Date.now() - devFetchedAt) / 1000;
+    grid.innerHTML = devSnap.devices.map(d => renderDevice(d, elapsed)).join('');
+  }
+
+  setInterval(() => { if (devicesTabActive) loadDevices(); }, 5000);
+  setInterval(() => { if (devicesTabActive && !devFetchError) renderDevices(); }, 1000);
 
   // ── SSE stream ────────────────────────────────────────────────────────────
   const evtSource = new EventSource('/stream');

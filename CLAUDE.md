@@ -38,7 +38,9 @@ vanilla-JS single page (no framework), SQLite.
 - `app.py` — routes, MQTT client, SSE broadcast, dosing logic, auth
 - `config.py` — loads `.env`; topics, recipes, systems, delays, defaults
 - `history.py` — SQLite writes for `dosing_events`, reads for the History tab
-- `templates/index.html` — the whole UI (Dose, Manual Pumps, Sensors, History tabs)
+- `devices.py` — in-memory health of the two ESP32s (heartbeats, sensor pass/fail, last
+  batch), judged against the `DEVICE_*` thresholds; feeds the Devices tab
+- `templates/index.html` — the whole UI (Pumps, Sensors, History, Devices tabs)
 - `templates/login.html` — login form
 - `.env` — secrets and overrides (gitignored)
 
@@ -53,6 +55,7 @@ vanilla-JS single page (no framework), SQLite.
 | `POST /sensor_read` | `read` / `read_all` to the sensor ESP32 |
 | `POST /sensor_cmd` | Raw Atlas command for `ph` or `ec` (calibration) |
 | `GET /history` | Last 50 dosing events and sensor readings |
+| `GET /devices` | Live status of both controllers, with ages measured on the server |
 | `GET /stream` | SSE stream of all MQTT traffic |
 
 ## MQTT
@@ -113,6 +116,8 @@ never raises: a failed write is silent.
 | `DELAY_MICRO_SEC` | `150` | After Micro |
 | `DELAY_GRO_SEC` | `90` | After Gro |
 | `DELAY_BLOOM_SEC` | `90` | After Bloom |
+| `DEVICE_HEARTBEAT_WARN_SEC` / `_DOWN_SEC` | `45` / `90` | Devices tab: heartbeat age that flags a controller amber / red |
+| `DEVICE_READING_WARN_SEC` / `_DOWN_SEC` | `90` / `180` | Devices tab: sensor reading age that flags amber / red |
 
 Topic names can also be overridden (`MQTT_CMD_TOPIC`, `SENSOR_STATUS_TOPIC`, ...), but the
 defaults match the firmware.
@@ -145,6 +150,8 @@ cd /home/pi/code/grow-ui && git pull && sudo systemctl restart grow-ui
    of the nutrient batch.
 7. **SSE buffer:** the last 100 events are replayed to new connections so a refresh
    mid-batch keeps context. The buffer is in memory only and is lost on restart.
+   `controller_status` heartbeats are deliberately not buffered: two controllers send one
+   every 30 s and would push batch events out within half an hour.
 8. **paho-mqtt 2.x:** callbacks use the v2 signatures. v1-style callbacks fail silently.
 9. **Multiple systems:** `SYSTEMS` in `config.py` maps nutrient roles to pump IDs. The
    selector appears only when more than one system is defined.
