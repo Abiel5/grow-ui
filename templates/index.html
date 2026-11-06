@@ -958,7 +958,28 @@
       const word = {good: 'Good', fair: 'Fair', weak: 'Weak'}[rssiCls];
       rssi = `${d.wifi_rssi} dBm (${word})`;
     }
-    const heap = d.free_heap != null ? `${Math.round(d.free_heap / 1024)} KB free` : dim;
+    const kb = n => Math.round(n / 1024) + ' KB';
+    // Firmware older than the RAM/temperature fields sends only free_heap.
+    let heap = dim;
+    if (d.free_heap != null && d.heap_total) {
+      const usedPct = Math.round(100 * (d.heap_total - d.free_heap) / d.heap_total);
+      heap = `${usedPct}% used (${kb(d.free_heap)} free of ${kb(d.heap_total)})`;
+    } else if (d.free_heap != null) {
+      heap = `${kb(d.free_heap)} free`;
+    }
+    // Lowest free heap since boot: a near-miss shows here even if now looks fine.
+    let heapLow = null, heapLowCls = '';
+    if (d.heap_min_free != null && d.heap_total) {
+      heapLow = kb(d.heap_min_free);
+      const frac = d.heap_min_free / d.heap_total;
+      heapLowCls = frac < 0.10 ? 'weak' : frac < 0.20 ? 'fair' : '';
+    }
+    // Die temperature, not air. These bands are a guide until real readings are known.
+    let temp = null, tempCls = '';
+    if (d.chip_temp != null) {
+      temp = d.chip_temp.toFixed(1) + ' °F';
+      tempCls = d.chip_temp >= 185 ? 'weak' : d.chip_temp >= 158 ? 'fair' : '';
+    }
     const uptime = d.uptime_sec != null && d.heartbeat_age_sec != null
       ? fmtDur(d.uptime_sec + d.heartbeat_age_sec + elapsed) : dim;
     const booted = d.booted_at != null ? new Date(d.booted_at * 1000).toLocaleString() : dim;
@@ -968,6 +989,8 @@
     rows += devRow('Booted', booted);
     rows += devRow('Wi-Fi signal', rssi, rssiCls);
     rows += devRow('Memory', heap);
+    if (heapLow != null) rows += devRow('Lowest free memory', heapLow, heapLowCls);
+    if (temp != null) rows += devRow('Chip temperature', temp, tempCls);
     rows += devRow('IP address', d.ip ? esc(d.ip) : dim);
 
     if (d.id === 'pump') {

@@ -53,7 +53,8 @@ def _record_heartbeat(dev: dict, msg: dict, now: float, retained: bool) -> None:
     dev["state"] = state
     dev["seen_at"] = now
     dev["heartbeat"] = {
-        **{k: msg[k] for k in ("uptime_sec", "free_heap", "wifi_rssi")
+        **{k: msg[k] for k in ("uptime_sec", "free_heap", "heap_total", "heap_min_free",
+                               "chip_temp", "wifi_rssi")
            if isinstance(msg.get(k), (int, float)) and not isinstance(msg.get(k), bool)},
         **{k: msg[k] for k in ("active_batch", "motor_busy") if isinstance(msg.get(k), bool)},
     }
@@ -150,6 +151,9 @@ def _device_view(kind: str, dev: dict, mqtt_connected: bool, now: float) -> dict
     hb = dev["heartbeat"]
     view["wifi_rssi"] = hb.get("wifi_rssi")
     view["free_heap"] = hb.get("free_heap")
+    view["heap_total"] = hb.get("heap_total")
+    view["heap_min_free"] = hb.get("heap_min_free")
+    view["chip_temp"] = hb.get("chip_temp")
     uptime = hb.get("uptime_sec")
     view["uptime_sec"] = uptime
     view["booted_at"] = None if uptime is None or dev["seen_at"] is None else dev["seen_at"] - uptime
